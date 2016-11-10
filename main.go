@@ -105,7 +105,7 @@ func main() {
 
 	fmt.Println(string(out))
 
-	if resp.ConnectBackAddr == req.PortMapped {
+	if resp.ConnectBackAddr == req.PortMapped && req.PortMapped != "" {
 		fmt.Println("your routers upnp/NAT-PMP port mapping works!")
 	}
 }
