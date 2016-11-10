@@ -160,9 +160,24 @@ func makeResp(h host.Host, req *natinfo.NATRequest) (*natinfo.NATResponse, error
 		return nil, err
 	}
 
+	port, err := laddr.ValueForProtocol(ma.P_TCP)
+	if err != nil {
+		return nil, err
+	}
+
+	ipaddr, err := extaddr.ValueForProtocol(ma.P_IP4)
+	if err != nil {
+		return nil, err
+	}
+
+	hopeful, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%s", ipaddr, port))
+	if err != nil {
+		return nil, err
+	}
+
 	pinfo := pstore.PeerInfo{
 		ID:    pid,
-		Addrs: []ma.Multiaddr{laddr, extaddr},
+		Addrs: []ma.Multiaddr{laddr, extaddr, hopeful},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
