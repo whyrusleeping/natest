@@ -60,7 +60,7 @@ func main() {
 
 	flag.Parse()
 
-	listenaddr := fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", *listenF)
+	listenaddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", *listenF)
 
 	ha, err := makebasicHost(listenaddr)
 	if err != nil {
