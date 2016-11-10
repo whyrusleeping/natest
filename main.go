@@ -26,7 +26,7 @@ func main() {
 	target := flag.String("d", "", "target peer to dial")
 	flag.Parse()
 
-	listenaddr := fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", *listenF)
+	listenaddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", *listenF)
 
 	// first host dials out and makes the initial request
 	ha, err := makeDummyHost("/ip4/127.0.0.1/tcp/0")
