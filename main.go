@@ -15,7 +15,6 @@ import (
 	pstore "gx/ipfs/QmXXCcQ7CLg5a81Ui9TTR35QcR4y7ZyihxwfjqaHfUVcVo/go-libp2p-peerstore"
 	testutil "gx/ipfs/QmaEcA713Y54EtSsj7ZYfwXmsTfxrJ4oywr1iFt1d6LKY5/go-testutil"
 	swarm "gx/ipfs/QmcjMKTqrWgMMCExEnwczefhno5fvx7FHDV63peZwDzHNF/go-libp2p-swarm"
-	gateway "gx/ipfs/Qmf2fBLzCvFxs3vvZaoQyKSTv2rjApek4F1kzRxAfK6P4P/gateway"
 	peer "gx/ipfs/QmfMmLGoKzCHDN7cGgk64PJr4iipzidDRME8HABSJqvmhC/go-libp2p-peer"
 
 	natinfo "github.com/whyrusleeping/natest/natinfo"
@@ -43,10 +42,6 @@ func main() {
 	}
 
 	//myaddrs := hb.Addrs()
-	gwayip, err := gateway.DiscoverGateway()
-	if err != nil {
-		log.Fatalln(err)
-	}
 
 	myaddrs, err := hb.Network().InterfaceListenAddresses()
 	if err != nil {
@@ -84,7 +79,6 @@ func main() {
 	}
 	req.ListenAddr = myaddrs[0].String()
 	req.PeerID = hb.ID().Pretty()
-	req.SeenGateway = gwayip.String()
 
 	resp, err := makeReq(ha, &req, pi.ID)
 	if err != nil {
