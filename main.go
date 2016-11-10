@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	nat "gx/ipfs/QmPpncQ3L4bC3rnwLBrgEomygs5RbnFejb68GgsecxbMiL/go-libp2p-nat"
 	bhost "gx/ipfs/QmQfvKShQ2v7nkfCE4ygisxpcSBFvBYaorQ54SibY6PGXV/go-libp2p/p2p/host/basic"
 	ma "gx/ipfs/QmUAQaWbKxGCUTuoQVvvicbQNZ9APF5pDGWyAZSe93AtKH/go-multiaddr"
 	host "gx/ipfs/QmWf338UyG5DKyemvoFiomDPtkVNHLsw3GAt9XXHX5ZtsM/go-libp2p-host"
@@ -64,6 +65,19 @@ func main() {
 		log.Fatal(err)
 	}
 
+	myaddrs := ha.Addrs()
+	fmt.Println(myaddrs)
+	onat := nat.DiscoverNAT()
+	mapping, err := onat.NewMapping(myaddrs[0])
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	extaddr, err := mapping.ExternalAddr()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	if *target == "" {
 		fmt.Println("please specify target")
 		return
@@ -110,6 +124,7 @@ func main() {
 	}
 
 	var req natinfo.NATRequest
+	req.PortMapped = extaddr.String()
 	err = json.NewEncoder(s).Encode(&req)
 	if err != nil {
 		log.Fatalln(err)

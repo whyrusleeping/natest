@@ -78,6 +78,10 @@ func main() {
 			return
 		}
 
+		fmt.Println("got req")
+		out, _ := json.MarshalIndent(req, "", "  ")
+		fmt.Println(string(out))
+
 		var resp natinfo.NATResponse
 		resp.SeenAddr = s.Conn().RemoteMultiaddr().String()
 
