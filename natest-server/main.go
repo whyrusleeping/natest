@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"os"
+	"time"
 
 	bhost "gx/ipfs/QmQfvKShQ2v7nkfCE4ygisxpcSBFvBYaorQ54SibY6PGXV/go-libp2p/p2p/host/basic"
 	ma "gx/ipfs/QmUAQaWbKxGCUTuoQVvvicbQNZ9APF5pDGWyAZSe93AtKH/go-multiaddr"
@@ -15,9 +18,56 @@ import (
 	swarm "gx/ipfs/QmcjMKTqrWgMMCExEnwczefhno5fvx7FHDV63peZwDzHNF/go-libp2p-swarm"
 	net "gx/ipfs/QmdysBu77i3YaagNtMAjiCJdeWWvds18ho5XEB784guQ41/go-libp2p-net"
 	peer "gx/ipfs/QmfMmLGoKzCHDN7cGgk64PJr4iipzidDRME8HABSJqvmhC/go-libp2p-peer"
+	ci "gx/ipfs/QmfWDLQjGjVe4fr5CoztYW2DYYjRysMJrFe1RCsXLPTf46/go-libp2p-crypto"
 
 	natinfo "github.com/whyrusleeping/natest/natinfo"
 )
+
+func getIdentity() (peer.ID, ci.PrivKey) {
+	fi, err := os.Open("natest.key")
+	if err != nil {
+		ident, err := testutil.RandIdentity()
+		if err != nil {
+			panic(err)
+		}
+
+		data, err := ident.PrivateKey().Bytes()
+		if err != nil {
+			panic(err)
+		}
+
+		fi, err := os.Create("natest.key")
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = fi.Write(data)
+		if err != nil {
+			panic(err)
+		}
+
+		fi.Close()
+
+		return ident.ID(), ident.PrivateKey()
+	}
+
+	data, err := ioutil.ReadAll(fi)
+	if err != nil {
+		panic(err)
+	}
+
+	privk, err := ci.UnmarshalPrivateKey(data)
+	if err != nil {
+		panic(err)
+	}
+
+	pid, err := peer.IDFromPrivateKey(privk)
+	if err != nil {
+		panic(err)
+	}
+
+	return pid, privk
+}
 
 // create a 'Host' with a random peer to listen on the given address
 func makebasicHost(listen string) (host.Host, error) {
@@ -29,15 +79,9 @@ func makebasicHost(listen string) (host.Host, error) {
 	ps := pstore.NewPeerstore()
 	var pid peer.ID
 
-	ident, err := testutil.RandIdentity()
-	if err != nil {
-		return nil, err
-	}
-
-	ident.PrivateKey()
-	ps.AddPrivKey(ident.ID(), ident.PrivateKey())
-	ps.AddPubKey(ident.ID(), ident.PublicKey())
-	pid = ident.ID()
+	pid, privk := getIdentity()
+	ps.AddPrivKey(pid, privk)
+	ps.AddPubKey(pid, privk.GetPublic())
 
 	ctx := context.Background()
 
@@ -82,7 +126,12 @@ func main() {
 		out, _ := json.MarshalIndent(req, "", "  ")
 		fmt.Println(string(out))
 
-		var resp natinfo.NATResponse
+		resp, err := makeResp(ha, &req)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
 		resp.SeenAddr = s.Conn().RemoteMultiaddr().String()
 
 		err = json.NewEncoder(s).Encode(&resp)
@@ -93,4 +142,43 @@ func main() {
 	})
 
 	select {}
+}
+
+func makeResp(h host.Host, req *natinfo.NATRequest) (*natinfo.NATResponse, error) {
+	pid, err := peer.IDB58Decode(req.PeerID)
+	if err != nil {
+		return nil, err
+	}
+
+	laddr, err := ma.NewMultiaddr(req.ListenAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	extaddr, err := ma.NewMultiaddr(req.PortMapped)
+	if err != nil {
+		return nil, err
+	}
+
+	pinfo := pstore.PeerInfo{
+		ID:    pid,
+		Addrs: []ma.Multiaddr{laddr, extaddr},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
+	defer cancel()
+
+	err = h.Connect(ctx, pinfo)
+	if err != nil {
+		return &natinfo.NATResponse{
+			ConnectBackSuccess: false,
+			ConnectBackMsg:     err.Error(),
+		}, nil
+	}
+
+	conns := h.Network().ConnsToPeer(pid)
+	return &natinfo.NATResponse{
+		ConnectBackSuccess: true,
+		ConnectBackAddr:    conns[0].RemoteMultiaddr().String(),
+	}, nil
 }

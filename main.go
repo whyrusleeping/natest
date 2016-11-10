@@ -20,6 +20,98 @@ import (
 	natinfo "github.com/whyrusleeping/natest/natinfo"
 )
 
+func main() {
+	listenF := flag.Int("l", 0, "wait for incoming connections")
+	target := flag.String("d", "", "target peer to dial")
+	flag.Parse()
+
+	listenaddr := fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", *listenF)
+
+	// first host dials out and makes the initial request
+	ha, err := makeDummyHost("/ip4/127.0.0.1/tcp/0")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// second host gets dialed to from the natest server
+	hb, err := makeDummyHost(listenaddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	myaddrs := hb.Addrs()
+	fmt.Println(myaddrs)
+	onat := nat.DiscoverNAT()
+	mapping, err := onat.NewMapping(myaddrs[0])
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	extaddr, err := mapping.ExternalAddr()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	pi, err := pinfoFromString(*target)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	err = ha.Connect(context.Background(), *pi)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	var req natinfo.NATRequest
+	req.PortMapped = extaddr.String()
+	req.ListenAddr = myaddrs[0].String()
+	req.PeerID = hb.ID().Pretty()
+
+	resp, err := makeReq(ha, &req, pi.ID)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	out, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	fmt.Println(string(out))
+}
+
+func pinfoFromString(target string) (*pstore.PeerInfo, error) {
+	if target == "" {
+		return nil, fmt.Errorf("please specify target")
+	}
+
+	ipfsaddr, err := ma.NewMultiaddr(target)
+	if err != nil {
+		return nil, err
+	}
+
+	pid, err := ipfsaddr.ValueForProtocol(ma.P_IPFS)
+	if err != nil {
+		return nil, err
+	}
+
+	peerid, err := peer.IDB58Decode(pid)
+	if err != nil {
+		return nil, err
+	}
+
+	tptaddr := strings.Split(ipfsaddr.String(), "/ipfs/")[0]
+	tptmaddr, err := ma.NewMultiaddr(tptaddr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pstore.PeerInfo{
+		ID:    peerid,
+		Addrs: []ma.Multiaddr{tptmaddr},
+	}, nil
+}
+
 // create a 'Host' with a random peer to listen on the given address
 func makeDummyHost(listen string) (host.Host, error) {
 	addr, err := ma.NewMultiaddr(listen)
@@ -52,94 +144,22 @@ func makeDummyHost(listen string) (host.Host, error) {
 	return bhost.New(netw), nil
 }
 
-func main() {
-	listenF := flag.Int("l", 0, "wait for incoming connections")
-	target := flag.String("d", "", "target peer to dial")
-
-	flag.Parse()
-
-	listenaddr := fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", *listenF)
-
-	ha, err := makeDummyHost(listenaddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	myaddrs := ha.Addrs()
-	fmt.Println(myaddrs)
-	onat := nat.DiscoverNAT()
-	mapping, err := onat.NewMapping(myaddrs[0])
+func makeReq(h host.Host, req *natinfo.NATRequest, peerid peer.ID) (*natinfo.NATResponse, error) {
+	s, err := h.NewStream(context.Background(), peerid, "/nattest/1.0.0")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	extaddr, err := mapping.ExternalAddr()
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	if *target == "" {
-		fmt.Println("please specify target")
-		return
-	}
-
-	ipfsaddr, err := ma.NewMultiaddr(*target)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	pid, err := ipfsaddr.ValueForProtocol(ma.P_IPFS)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	peerid, err := peer.IDB58Decode(pid)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	tptaddr := strings.Split(ipfsaddr.String(), "/ipfs/")[0]
-	tptmaddr, err := ma.NewMultiaddr(tptaddr)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	pi := pstore.PeerInfo{
-		ID:    peerid,
-		Addrs: []ma.Multiaddr{tptmaddr},
-	}
-
-	log.Println("connecting to target")
-	err = ha.Connect(context.Background(), pi)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	log.Println("opening stream")
-	// make a new stream from host B to host A
-	// it should be handled on host A by the handler we set
-	s, err := ha.NewStream(context.Background(), peerid, "/nattest/1.0.0")
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	var req natinfo.NATRequest
-	req.PortMapped = extaddr.String()
 	err = json.NewEncoder(s).Encode(&req)
 	if err != nil {
-		log.Fatalln(err)
+		return nil, err
 	}
 
 	var resp natinfo.NATResponse
 	err = json.NewDecoder(s).Decode(&resp)
 	if err != nil {
-		log.Fatalln(err)
+		return nil, err
 	}
 
-	out, err := json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	fmt.Println(string(out))
+	return &resp, nil
 }
