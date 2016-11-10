@@ -1,0 +1,20 @@
+{
+  "author": "whyrusleeping",
+  "bugs": {},
+  "gx": {},
+  "gxDependencies": [
+    {
+      "author": "whyrusleeping",
+      "hash": "QmQfvKShQ2v7nkfCE4ygisxpcSBFvBYaorQ54SibY6PGXV",
+      "name": "go-libp2p",
+      "version": "4.0.4"
+    }
+  ],
+  "gxVersion": "0.10.0",
+  "language": "go",
+  "license": "",
+  "name": "server",
+  "releaseCmd": "git commit -a -m \"gx publish $VERSION\"",
+  "version": "0.0.0"
+}
+
