@@ -22,8 +22,10 @@ import (
 )
 
 func main() {
+	defaultServer := "/ip4/104.131.131.82/tcp/7777/ipfs/QmSsiV2jfFUrT1JVC7Cf7ChboWFzBjUkm3QrypaiUkyBej"
 	listenF := flag.Int("l", 0, "wait for incoming connections")
-	target := flag.String("d", "", "target peer to dial")
+	target := flag.String("d", defaultServer, "target peer to dial")
+	noNat := flag.Bool("nonat", false, "don't use nat lib")
 	flag.Parse()
 
 	listenaddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", *listenF)
@@ -53,14 +55,17 @@ func main() {
 	fmt.Println(myaddrs)
 	onat := nat.DiscoverNAT()
 
-	mapping, err := onat.NewMapping(myaddrs[0])
-	if err != nil {
-		log.Fatalln(err)
-	}
+	var extaddr ma.Multiaddr
+	if !*noNat {
+		mapping, err := onat.NewMapping(myaddrs[0])
+		if err != nil {
+			log.Fatalln(err)
+		}
 
-	extaddr, err := mapping.ExternalAddr()
-	if err != nil {
-		log.Fatalln(err)
+		extaddr, err = mapping.ExternalAddr()
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
 
 	pi, err := pinfoFromString(*target)
@@ -74,7 +79,9 @@ func main() {
 	}
 
 	var req natinfo.NATRequest
-	req.PortMapped = extaddr.String()
+	if extaddr != nil {
+		req.PortMapped = extaddr.String()
+	}
 	req.ListenAddr = myaddrs[0].String()
 	req.PeerID = hb.ID().Pretty()
 	req.SeenGateway = gwayip.String()
@@ -84,12 +91,23 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	out, err := json.MarshalIndent(resp, "", "  ")
+	out, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	fmt.Println(string(out))
+
+	out, err = json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	fmt.Println(string(out))
+
+	if resp.ConnectBackAddr == req.PortMapped {
+		fmt.Println("your routers upnp/NAT-PMP port mapping works!")
+	}
 }
 
 func pinfoFromString(target string) (*pstore.PeerInfo, error) {

@@ -126,7 +126,7 @@ func main() {
 		out, _ := json.MarshalIndent(req, "", "  ")
 		fmt.Println(string(out))
 
-		resp, err := makeResp(ha, &req)
+		resp, err := makeResp(ha, &req, s.Conn().RemoteMultiaddr())
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -144,20 +144,25 @@ func main() {
 	select {}
 }
 
-func makeResp(h host.Host, req *natinfo.NATRequest) (*natinfo.NATResponse, error) {
+func makeResp(h host.Host, req *natinfo.NATRequest, connaddr ma.Multiaddr) (*natinfo.NATResponse, error) {
 	pid, err := peer.IDB58Decode(req.PeerID)
 	if err != nil {
 		return nil, err
 	}
 
+	var addrs []ma.Multiaddr
 	laddr, err := ma.NewMultiaddr(req.ListenAddr)
 	if err != nil {
 		return nil, err
 	}
+	addrs = append(addrs, laddr)
 
-	extaddr, err := ma.NewMultiaddr(req.PortMapped)
-	if err != nil {
-		return nil, err
+	if req.PortMapped != "" {
+		extaddr, err := ma.NewMultiaddr(req.PortMapped)
+		if err != nil {
+			return nil, err
+		}
+		addrs = append(addrs, extaddr)
 	}
 
 	port, err := laddr.ValueForProtocol(ma.P_TCP)
@@ -165,7 +170,7 @@ func makeResp(h host.Host, req *natinfo.NATRequest) (*natinfo.NATResponse, error
 		return nil, err
 	}
 
-	ipaddr, err := extaddr.ValueForProtocol(ma.P_IP4)
+	ipaddr, err := connaddr.ValueForProtocol(ma.P_IP4)
 	if err != nil {
 		return nil, err
 	}
@@ -174,10 +179,11 @@ func makeResp(h host.Host, req *natinfo.NATRequest) (*natinfo.NATResponse, error
 	if err != nil {
 		return nil, err
 	}
+	addrs = append(addrs, hopeful)
 
 	pinfo := pstore.PeerInfo{
 		ID:    pid,
-		Addrs: []ma.Multiaddr{laddr, extaddr, hopeful},
+		Addrs: addrs,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
