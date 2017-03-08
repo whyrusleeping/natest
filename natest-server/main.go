@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -100,13 +101,28 @@ func makebasicHost(listen string) (host.Host, error) {
 }
 
 func main() {
-	listenF := flag.Int("l", 0, "wait for incoming connections")
-
+	listenF := flag.Int("l", 7777, "serve http interface on given port")
 	flag.Parse()
 
-	listenaddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", *listenF)
+	var ha host.Host
+	http.HandleFunc("/peerinfo", func(w http.ResponseWriter, r *http.Request) {
+		var out []string
+		for _, a := range ha.Addrs() {
+			out = append(out, a.String())
+		}
+		pi := map[string]interface{}{
+			"ID":    ha.ID().Pretty(),
+			"Addrs": out,
+		}
 
-	ha, err := makebasicHost(listenaddr)
+		json.NewEncoder(w).Encode(pi)
+	})
+	go func() {
+		panic(http.ListenAndServe(fmt.Sprintf(":%d", *listenF), nil))
+	}()
+
+	var err error
+	ha, err = makebasicHost("/ip4/0.0.0.0/tcp/0")
 	if err != nil {
 		log.Fatal(err)
 	}

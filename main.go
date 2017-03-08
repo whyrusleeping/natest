@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 
 	nat "gx/ipfs/QmPpncQ3L4bC3rnwLBrgEomygs5RbnFejb68GgsecxbMiL/go-libp2p-nat"
@@ -20,14 +21,54 @@ import (
 	natinfo "github.com/whyrusleeping/natest/natinfo"
 )
 
+func getServerInfo(server string) (*pstore.PeerInfo, error) {
+	resp, err := http.Get(server + "/peerinfo")
+	if err != nil {
+		return nil, fmt.Errorf("could not contact natest server: %s", err)
+	}
+
+	defer resp.Body.Close()
+
+	var pinfo struct {
+		ID    string
+		Addrs []string
+	}
+	err = json.NewDecoder(resp.Body).Decode(&pinfo)
+	if err != nil {
+		return nil, err
+	}
+
+	pid, err := peer.IDB58Decode(pinfo.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := pstore.PeerInfo{ID: pid}
+	for _, a := range pinfo.Addrs {
+		addr, err := ma.NewMultiaddr(a)
+		if err != nil {
+			return nil, err
+		}
+
+		out.Addrs = append(out.Addrs, addr)
+	}
+
+	return &out, nil
+}
+
 func main() {
-	defaultServer := "/ip4/104.131.131.82/tcp/7777/ipfs/QmSsiV2jfFUrT1JVC7Cf7ChboWFzBjUkm3QrypaiUkyBej"
+	defaultServer := "http://mars.i.ipfs.team:7777"
 	listenF := flag.Int("l", 0, "wait for incoming connections")
-	target := flag.String("d", defaultServer, "target peer to dial")
+	natestserver := flag.String("server", defaultServer, "url of natest server")
 	noNat := flag.Bool("nonat", false, "don't use nat lib")
 	flag.Parse()
 
 	listenaddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", *listenF)
+
+	pi, err := getServerInfo(*natestserver)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// first host dials out and makes the initial request
 	ha, err := makeDummyHost("/ip4/127.0.0.1/tcp/0")
@@ -61,11 +102,6 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-	}
-
-	pi, err := pinfoFromString(*target)
-	if err != nil {
-		log.Fatalln(err)
 	}
 
 	err = ha.Connect(context.Background(), *pi)
