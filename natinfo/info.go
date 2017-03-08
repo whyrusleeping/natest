@@ -5,6 +5,7 @@ type NATResponse struct {
 	ConnectBackSuccess bool
 	ConnectBackMsg     string
 	ConnectBackAddr    string
+	TriedAddrs         []string
 }
 
 type NATRequest struct {

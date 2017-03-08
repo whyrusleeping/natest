@@ -111,8 +111,9 @@ func main() {
 			out = append(out, a.String())
 		}
 		pi := map[string]interface{}{
-			"ID":    ha.ID().Pretty(),
-			"Addrs": out,
+			"ID":       ha.ID().Pretty(),
+			"Addrs":    out,
+			"SeenAddr": r.RemoteAddr,
 		}
 
 		json.NewEncoder(w).Encode(pi)
@@ -210,6 +211,7 @@ func makeResp(h host.Host, req *natinfo.NATRequest, connaddr ma.Multiaddr) (*nat
 		return &natinfo.NATResponse{
 			ConnectBackSuccess: false,
 			ConnectBackMsg:     err.Error(),
+			TriedAddrs:         MaddrsToStrings(addrs),
 		}, nil
 	}
 
@@ -217,5 +219,14 @@ func makeResp(h host.Host, req *natinfo.NATRequest, connaddr ma.Multiaddr) (*nat
 	return &natinfo.NATResponse{
 		ConnectBackSuccess: true,
 		ConnectBackAddr:    conns[0].RemoteMultiaddr().String(),
+		TriedAddrs:         MaddrsToStrings(addrs),
 	}, nil
+}
+
+func MaddrsToStrings(mas []ma.Multiaddr) []string {
+	var out []string
+	for _, a := range mas {
+		out = append(out, a.String())
+	}
+	return out
 }
