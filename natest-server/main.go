@@ -11,15 +11,15 @@ import (
 	"os"
 	"time"
 
-	bhost "gx/ipfs/QmQfvKShQ2v7nkfCE4ygisxpcSBFvBYaorQ54SibY6PGXV/go-libp2p/p2p/host/basic"
-	ma "gx/ipfs/QmUAQaWbKxGCUTuoQVvvicbQNZ9APF5pDGWyAZSe93AtKH/go-multiaddr"
-	host "gx/ipfs/QmWf338UyG5DKyemvoFiomDPtkVNHLsw3GAt9XXHX5ZtsM/go-libp2p-host"
-	pstore "gx/ipfs/QmXXCcQ7CLg5a81Ui9TTR35QcR4y7ZyihxwfjqaHfUVcVo/go-libp2p-peerstore"
-	testutil "gx/ipfs/QmaEcA713Y54EtSsj7ZYfwXmsTfxrJ4oywr1iFt1d6LKY5/go-testutil"
-	swarm "gx/ipfs/QmcjMKTqrWgMMCExEnwczefhno5fvx7FHDV63peZwDzHNF/go-libp2p-swarm"
-	net "gx/ipfs/QmdysBu77i3YaagNtMAjiCJdeWWvds18ho5XEB784guQ41/go-libp2p-net"
-	peer "gx/ipfs/QmfMmLGoKzCHDN7cGgk64PJr4iipzidDRME8HABSJqvmhC/go-libp2p-peer"
-	ci "gx/ipfs/QmfWDLQjGjVe4fr5CoztYW2DYYjRysMJrFe1RCsXLPTf46/go-libp2p-crypto"
+	ci "github.com/libp2p/go-libp2p-crypto"
+	host "github.com/libp2p/go-libp2p-host"
+	net "github.com/libp2p/go-libp2p-net"
+	peer "github.com/libp2p/go-libp2p-peer"
+	pstore "github.com/libp2p/go-libp2p-peerstore"
+	swarm "github.com/libp2p/go-libp2p-swarm"
+	bhost "github.com/libp2p/go-libp2p/p2p/host/basic"
+	testutil "github.com/libp2p/go-testutil"
+	ma "github.com/multiformats/go-multiaddr"
 
 	natinfo "github.com/whyrusleeping/natest/natinfo"
 )
@@ -100,19 +100,30 @@ func makebasicHost(listen string) (host.Host, error) {
 	return bhost.New(netw), nil
 }
 
+func makeJsonPeerInfo(h host.Host) interface{} {
+	var out []string
+	for _, a := range h.Addrs() {
+		out = append(out, a.String())
+	}
+	return map[string]interface{}{
+		"ID":    h.ID().Pretty(),
+		"Addrs": out,
+	}
+}
+
 func main() {
 	listenF := flag.Int("l", 7777, "serve http interface on given port")
 	flag.Parse()
 
-	var ha host.Host
+	var ha, hb host.Host
 	http.HandleFunc("/peerinfo", func(w http.ResponseWriter, r *http.Request) {
 		var out []string
 		for _, a := range ha.Addrs() {
 			out = append(out, a.String())
 		}
 		pi := map[string]interface{}{
-			"ID":       ha.ID().Pretty(),
-			"Addrs":    out,
+			"A":        makeJsonPeerInfo(ha),
+			"B":        makeJsonPeerInfo(hb),
 			"SeenAddr": r.RemoteAddr,
 		}
 
@@ -124,6 +135,11 @@ func main() {
 
 	var err error
 	ha, err = makebasicHost("/ip4/0.0.0.0/tcp/0")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	hb, err = makebasicHost("/ip4/0.0.0.0/tcp/0")
 	if err != nil {
 		log.Fatal(err)
 	}

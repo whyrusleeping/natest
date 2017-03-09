@@ -10,15 +10,15 @@ import (
 	"net/http"
 	"strings"
 
-	nat "gx/ipfs/QmPpncQ3L4bC3rnwLBrgEomygs5RbnFejb68GgsecxbMiL/go-libp2p-nat"
-	bhost "gx/ipfs/QmQfvKShQ2v7nkfCE4ygisxpcSBFvBYaorQ54SibY6PGXV/go-libp2p/p2p/host/basic"
-	manet "gx/ipfs/QmT6Cp31887FpAc25z25YHgpFJohZedrYLWPPspRtj1Brp/go-multiaddr-net"
-	ma "gx/ipfs/QmUAQaWbKxGCUTuoQVvvicbQNZ9APF5pDGWyAZSe93AtKH/go-multiaddr"
-	host "gx/ipfs/QmWf338UyG5DKyemvoFiomDPtkVNHLsw3GAt9XXHX5ZtsM/go-libp2p-host"
-	pstore "gx/ipfs/QmXXCcQ7CLg5a81Ui9TTR35QcR4y7ZyihxwfjqaHfUVcVo/go-libp2p-peerstore"
-	testutil "gx/ipfs/QmaEcA713Y54EtSsj7ZYfwXmsTfxrJ4oywr1iFt1d6LKY5/go-testutil"
-	swarm "gx/ipfs/QmcjMKTqrWgMMCExEnwczefhno5fvx7FHDV63peZwDzHNF/go-libp2p-swarm"
-	peer "gx/ipfs/QmfMmLGoKzCHDN7cGgk64PJr4iipzidDRME8HABSJqvmhC/go-libp2p-peer"
+	host "github.com/libp2p/go-libp2p-host"
+	nat "github.com/libp2p/go-libp2p-nat"
+	peer "github.com/libp2p/go-libp2p-peer"
+	pstore "github.com/libp2p/go-libp2p-peerstore"
+	swarm "github.com/libp2p/go-libp2p-swarm"
+	bhost "github.com/libp2p/go-libp2p/p2p/host/basic"
+	testutil "github.com/libp2p/go-testutil"
+	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr-net"
 
 	natinfo "github.com/whyrusleeping/natest/natinfo"
 )
@@ -29,54 +29,84 @@ type NatCheck struct {
 }
 
 type Results struct {
-	Nat          NatCheck
-	HavePublicIP bool
-	Response     natinfo.NATResponse
+	Nat                 NatCheck
+	HavePublicIP        bool
+	Response            natinfo.NATResponse
+	TcpReuseportWorking bool
 }
 
-func getServerInfo(server string) (*pstore.PeerInfo, ma.Multiaddr, error) {
-	resp, err := http.Get(server + "/peerinfo")
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not contact natest server: %s", err)
-	}
+type ServerInfo struct {
+	A pstore.PeerInfo
+	B pstore.PeerInfo
 
-	defer resp.Body.Close()
+	SeenAddr ma.Multiaddr
+}
 
-	var pinfo struct {
-		ID       string
-		Addrs    []string
-		SeenAddr string
-	}
-	err = json.NewDecoder(resp.Body).Decode(&pinfo)
-	if err != nil {
-		return nil, nil, err
-	}
+type pinfo struct {
+	ID    string
+	Addrs []string
+}
 
-	pid, err := peer.IDB58Decode(pinfo.ID)
+func (p pinfo) toPeerInfo() (pstore.PeerInfo, error) {
+	pid, err := peer.IDB58Decode(p.ID)
 	if err != nil {
-		return nil, nil, err
+		return pstore.PeerInfo{}, err
 	}
 
 	out := pstore.PeerInfo{ID: pid}
-	for _, a := range pinfo.Addrs {
+	for _, a := range p.Addrs {
 		addr, err := ma.NewMultiaddr(a)
 		if err != nil {
-			return nil, nil, err
+			return pstore.PeerInfo{}, err
 		}
 
 		out.Addrs = append(out.Addrs, addr)
 	}
+	return out, nil
+}
 
-	naddr, err := net.ResolveTCPAddr("tcp", pinfo.SeenAddr)
+func getServerInfo(server string) (*ServerInfo, error) {
+	resp, err := http.Get(server + "/peerinfo")
 	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("could not contact natest server: %s", err)
+	}
+
+	defer resp.Body.Close()
+
+	var sresp struct {
+		A        pinfo
+		B        pinfo
+		SeenAddr string
+	}
+	err = json.NewDecoder(resp.Body).Decode(&sresp)
+	if err != nil {
+		return nil, err
+	}
+
+	pia, err := sresp.A.toPeerInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	pib, err := sresp.B.toPeerInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	naddr, err := net.ResolveTCPAddr("tcp", sresp.SeenAddr)
+	if err != nil {
+		return nil, err
 	}
 	maddr, err := manet.FromNetAddr(naddr)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return &out, maddr, nil
+	return &ServerInfo{
+		A:        pia,
+		B:        pib,
+		SeenAddr: maddr,
+	}, nil
 }
 
 func tryToMakeNatMapping(addr ma.Multiaddr) (ma.Multiaddr, error) {
@@ -127,7 +157,7 @@ func main() {
 
 	listenaddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", *listenF)
 
-	pi, seen, err := getServerInfo(*natestserver)
+	sresp, err := getServerInfo(*natestserver)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -150,7 +180,8 @@ func main() {
 		log.Fatalln(err)
 	}
 	fmt.Println(myaddrs)
-	pubIpAddr := checkIfIpInList(myaddrs, seen)
+	pubIpAddr := checkIfIpInList(myaddrs, sresp.SeenAddr)
+	fmt.Println("Public IP? ", pubIpAddr)
 
 	var naterror error
 	var extaddr ma.Multiaddr
@@ -165,7 +196,12 @@ func main() {
 	}
 	_ = naterror
 
-	err = ha.Connect(context.Background(), *pi)
+	err = hb.Connect(context.Background(), sresp.B)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	err = ha.Connect(context.Background(), sresp.A)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -177,7 +213,7 @@ func main() {
 	req.ListenAddr = myaddrs[0].String()
 	req.PeerID = hb.ID().Pretty()
 
-	resp, err := makeReq(ha, &req, pi.ID)
+	resp, err := makeReq(ha, &req, sresp.A.ID)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -248,7 +284,6 @@ func makeDummyHost(listen string) (host.Host, error) {
 		return nil, err
 	}
 
-	ident.PrivateKey()
 	ps.AddPrivKey(ident.ID(), ident.PrivateKey())
 	ps.AddPubKey(ident.ID(), ident.PublicKey())
 	pid = ident.ID()
@@ -261,7 +296,6 @@ func makeDummyHost(listen string) (host.Host, error) {
 		return nil, err
 	}
 
-	log.Printf("I am %s/ipfs/%s\n", addr, pid.Pretty())
 	return bhost.New(netw), nil
 }
 
