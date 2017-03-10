@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 
 	host "github.com/libp2p/go-libp2p-host"
@@ -28,11 +31,24 @@ type NatCheck struct {
 	MappedAddr ma.Multiaddr
 }
 
-type Results struct {
+type HttpReport struct {
+	OddPortConnection string
+	Port443Connection string
+}
+
+type Report struct {
+	OutboundHTTP        HttpReport
 	Nat                 NatCheck
 	HavePublicIP        bool
-	Response            natinfo.NATResponse
+	Response            *natinfo.NATResponse
+	Request             *natinfo.NATRequest
 	TcpReuseportWorking bool
+}
+
+func (r *Report) Print() {
+	out, _ := json.MarshalIndent(r, "", "  ")
+	fmt.Println(string(out))
+
 }
 
 type ServerInfo struct {
@@ -148,6 +164,25 @@ func checkIfIpInList(addrs []ma.Multiaddr, check ma.Multiaddr) bool {
 	return false
 }
 
+func tryStandardHTTPS() error {
+	resp, err := http.Get("https://ipfs.io/version")
+	if err != nil {
+		return err
+	}
+
+	defer resp.Body.Close()
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if !bytes.Contains(data, []byte("Protocol Version")) {
+		return fmt.Errorf("https connections appear to be MITMed")
+	}
+
+	return nil
+}
+
 func main() {
 	defaultServer := "http://mars.i.ipfs.team:7777"
 	listenF := flag.Int("l", 0, "wait for incoming connections")
@@ -157,53 +192,63 @@ func main() {
 
 	listenaddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", *listenF)
 
+	report := new(Report)
+	defer report.Print()
+
 	sresp, err := getServerInfo(*natestserver)
 	if err != nil {
-		log.Fatal(err)
+		report.OutboundHTTP.OddPortConnection = err.Error()
+		err := tryStandardHTTPS()
+		if err != nil {
+			report.OutboundHTTP.Port443Connection = err.Error()
+		}
+		fmt.Fprintln(os.Stderr, "Non-standard ports being blocked")
+		return
 	}
 
 	// first host dials out and makes the initial request
-	ha, err := makeDummyHost("/ip4/127.0.0.1/tcp/0")
+	ha, err := makeDummyHost("/ip4/127.0.0.1/tcp/9898")
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer ha.Close()
 
 	// second host gets dialed to from the natest server
 	hb, err := makeDummyHost(listenaddr)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer hb.Close()
 
 	// get addrs for listener host
 	myaddrs, err := hb.Network().InterfaceListenAddresses()
 	if err != nil {
 		log.Fatalln(err)
 	}
-	fmt.Println(myaddrs)
-	pubIpAddr := checkIfIpInList(myaddrs, sresp.SeenAddr)
-	fmt.Println("Public IP? ", pubIpAddr)
+	report.HavePublicIP = checkIfIpInList(myaddrs, sresp.SeenAddr)
 
-	var naterror error
 	var extaddr ma.Multiaddr
 	if !*noNat {
 		nataddr, err := tryToMakeNatMapping(myaddrs[0])
 		if err != nil {
-			naterror = err
-			fmt.Println("Creation of NAT Traversal mapping failed:", err)
+			report.Nat.Error = err
+			fmt.Fprintln(os.Stderr, "Creation of NAT Traversal mapping failed:", err)
 		}
 
+		report.Nat.MappedAddr = nataddr
 		extaddr = nataddr
 	}
-	_ = naterror
 
 	err = hb.Connect(context.Background(), sresp.B)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
 
 	err = ha.Connect(context.Background(), sresp.A)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
 
 	var req natinfo.NATRequest
@@ -213,27 +258,18 @@ func main() {
 	req.ListenAddr = myaddrs[0].String()
 	req.PeerID = hb.ID().Pretty()
 
+	report.Request = &req
+
 	resp, err := makeReq(ha, &req, sresp.A.ID)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
 
-	out, err := json.MarshalIndent(req, "", "  ")
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	fmt.Println(string(out))
-
-	out, err = json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	fmt.Println(string(out))
+	report.Response = resp
 
 	if resp.ConnectBackAddr == req.PortMapped && req.PortMapped != "" {
-		fmt.Println("your routers upnp/NAT-PMP port mapping works!")
+		fmt.Fprintln(os.Stderr, "your routers upnp/NAT-PMP port mapping works!")
 	}
 }
 
