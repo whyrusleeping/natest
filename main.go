@@ -28,7 +28,7 @@ import (
 
 type NatCheck struct {
 	Error      error
-	MappedAddr ma.Multiaddr
+	MappedAddr string
 }
 
 type HttpReport struct {
@@ -235,7 +235,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Creation of NAT Traversal mapping failed:", err)
 		}
 
-		report.Nat.MappedAddr = nataddr
+		report.Nat.MappedAddr = nataddr.String()
 		extaddr = nataddr
 	}
 
