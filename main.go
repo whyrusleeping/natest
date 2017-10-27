@@ -233,10 +233,10 @@ func main() {
 		if err != nil {
 			report.Nat.Error = err
 			fmt.Fprintln(os.Stderr, "Creation of NAT Traversal mapping failed:", err)
+		} else {
+			report.Nat.MappedAddr = nataddr.String()
+			extaddr = nataddr
 		}
-
-		report.Nat.MappedAddr = nataddr.String()
-		extaddr = nataddr
 	}
 
 	err = hb.Connect(context.Background(), sresp.B)
