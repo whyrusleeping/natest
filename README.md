@@ -9,7 +9,7 @@ it reports something different than you're expecting, please file an issue.
 go get github.com/whyrusleeping/natest
 ```
 
-## Usage
+## Usage (client)
 ```
 > natest
 your routers upnp/NAT-PMP port mapping works!
@@ -44,3 +44,11 @@ your routers upnp/NAT-PMP port mapping works!
 }
 ```
 
+
+## Usage (server)
+To run a custom server, install the server program with:
+```
+go get github.com/whyrusleeping/natest/natest-server
+```
+
+Then run it on a server with a public IP address. (No nat issues please)
